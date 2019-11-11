@@ -8,7 +8,7 @@
 #define LEDS_1_PIN 14
 #define LEDS_0_NUM 50
 #define LEDS_1_NUM 50
-#define MAX_BRIGHTNESS 128
+#define MAX_BRIGHTNESS 255
 #define DIST 6
 #define OFFSET 5
 
@@ -198,10 +198,10 @@ void loop() {
     Serial.println(globalBlue);
 
     updateState();
-    setStrand0(64, 64, 64, false); // wall
+    setStrand0(32, 32, 32, false); // wall
     setStrand0(globalRed, globalGreen, globalBlue, true); // bar
 
-    setStrand1(64, 64, 64, false); // wall
+    setStrand1(32, 32, 32, false); // wall
     setStrand1(globalRed, globalGreen, globalBlue, true); // bar
 
     LEDS.show();
