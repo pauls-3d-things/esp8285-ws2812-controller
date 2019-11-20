@@ -8,12 +8,13 @@
 #define LEDS_1_PIN 14
 #define LEDS_0_NUM 46
 #define LEDS_1_NUM 46
-#define MAX_BRIGHTNESS 255
+#define MAX_BRIGHTNESS 128
 #define DIST 6
 #define OFFSET 5
 
 CRGB leds0[LEDS_0_NUM];
 CRGB leds1[LEDS_1_NUM];
+uint8_t brightness = MAX_BRIGHTNESS;
 
 #define NUM_BARS 7
 uint8_t bars0[] = {4, 11, 17, 23, 30, 36, 42};
@@ -23,7 +24,7 @@ uint8_t hR;  // hue dim value
 uint8_t hG;
 uint8_t hB;
 unsigned long lastChanged = 0;
-unsigned long changeInterval = 1000;
+unsigned long changeInterval = 250;
 
 #define FLASH_BUTTON_PIN 0
 #define INTERNAL_LED 2  // the tiny blue led on the esp8285
@@ -142,16 +143,15 @@ void setup() {
 
   LEDS.addLeds<WS2812, LEDS_0_PIN, RGB>(leds0, LEDS_0_NUM);
   LEDS.addLeds<WS2812, LEDS_1_PIN, RGB>(leds1, LEDS_1_NUM);
-  LEDS.setBrightness(MAX_BRIGHTNESS);
+  LEDS.setBrightness(brightness);
   LEDS.show();
 
   server.on("/brightness", [&]() {
     int v = atoi(server.arg("value").c_str());
     if (v >= 0 && v <= 255) {
       Serial.print("Setting brightness to ");
+      brightness = v;
       Serial.println(v);
-      LEDS.setBrightness(v);
-      LEDS.show();
       server.send(200, "text/plain", String("Set brightness to ") + String(v));
     }
     server.send(300, "text/plain", String("Error. Input 0 - 255"));
@@ -171,6 +171,7 @@ void setup() {
   });
 
   server.begin();
+  digitalWrite(INTERNAL_LED, LED_OFF);
 }
 
 void loop() {
@@ -178,10 +179,10 @@ void loop() {
   server.handleClient();
 
   uint8_t button = digitalRead(FLASH_BUTTON_PIN);
-
   if (button == LOW) {
     digitalWrite(INTERNAL_LED, LED_ON);
     delay(500);  // debounce / rate limit
+    digitalWrite(INTERNAL_LED, LED_OFF);
   }
 
   if (millis() - lastChanged > changeInterval) {
@@ -196,11 +197,11 @@ void loop() {
 
     // I borked the last led
     leds1[45] = CRGB(0, 0, 0);
+    LEDS.setBrightness(brightness);
     LEDS.show();
 
     lastChanged = millis();
   }
 
   delay(5);
-  digitalWrite(INTERNAL_LED, LED_OFF);
 }
