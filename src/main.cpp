@@ -1,4 +1,3 @@
-#include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include "config.h"
 
@@ -12,9 +11,12 @@
 #define DIST 6
 #define OFFSET 5
 
+enum State { BOOT = 0, RUN_SLOW = 1, RUN_FAST = 2, RUN_FASTER = 3, SHUTDOWN = 4 };
+uint8_t state = BOOT;
+
 CRGB leds0[LEDS_0_NUM];
 CRGB leds1[LEDS_1_NUM];
-uint8_t brightness = MAX_BRIGHTNESS;
+uint8_t brightness = 0;
 
 #define NUM_BARS 7
 uint8_t bars0[] = {4, 11, 17, 23, 30, 36, 42};
@@ -31,29 +33,15 @@ unsigned long changeInterval = 250;
 #define LED_ON LOW
 #define LED_OFF HIGH
 
-ESP8266WebServer server(80);
-
-void waitForWifi() {
-  WiFi.hostname(HOSTNAME);
-  WiFi.mode(WIFI_STA);
-  do {
-    Serial.println("Connecting...");
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    delay(4000);
-  } while (WiFi.status() != WL_CONNECTED);
-}
-
-void checkWifi() {
-  bool wasDisconnected = false;
-  if (WiFi.status() != WL_CONNECTED) {
-    wasDisconnected = true;
-    Serial.println("Waiting for wifi ...");
-    waitForWifi();
-  }
-
-  if (wasDisconnected) {
-    Serial.println("Connected.");
-  }
+#define FPM_SLEEP_MAX_TIME 0xFFFFFFF
+void wifiOff() {
+  // Serial.println("diconnecting client and wifi");
+  // client.disconnect();
+  wifi_station_disconnect();
+  wifi_set_opmode(NULL_MODE);
+  wifi_set_sleep_type(MODEM_SLEEP_T);
+  wifi_fpm_open();
+  wifi_fpm_do_sleep(FPM_SLEEP_MAX_TIME);
 }
 
 void setLedColorHSV(byte h, byte s, byte v) {
@@ -137,6 +125,7 @@ void setStrand1(uint8_t r, uint8_t g, uint8_t b, boolean bar) {
 
 void setup() {
   Serial.begin(115200);
+  wifiOff();
 
   pinMode(INTERNAL_LED, OUTPUT);
   pinMode(FLASH_BUTTON_PIN, INPUT);
@@ -146,42 +135,42 @@ void setup() {
   LEDS.setBrightness(brightness);
   LEDS.show();
 
-  server.on("/brightness", [&]() {
-    int v = atoi(server.arg("value").c_str());
-    if (v >= 0 && v <= 255) {
-      Serial.print("Setting brightness to ");
-      brightness = v;
-      Serial.println(v);
-      server.send(200, "text/plain", String("Set brightness to ") + String(v));
-    }
-    server.send(300, "text/plain", String("Error. Input 0 - 255"));
-  });
-
-  server.on("/speed", [&]() {
-    uint v = atoi(server.arg("value").c_str());
-    if (v >= 0 && v < 10000) {
-      Serial.print("Set speed ");
-      Serial.println(v);
-
-      changeInterval = v;
-
-      server.send(200, "text/plain", String("Set speed to ") + String(v));
-    }
-    server.send(300, "text/plain", String("Input error"));
-  });
-
-  server.begin();
   digitalWrite(INTERNAL_LED, LED_OFF);
 }
 
 void loop() {
-  checkWifi();
-  server.handleClient();
+  switch (state) {
+    case BOOT:
+      if (brightness < MAX_BRIGHTNESS) {
+        brightness++;
+      } else {
+        state++;
+      }
+      break;
+    case RUN_SLOW:
+      changeInterval = 1000;
+      break;
+    case RUN_FAST:
+      changeInterval = 50;
+      break;
+    case RUN_FASTER:
+      changeInterval = 10;
+      break;
+    case SHUTDOWN:
+      if (brightness > 0) {
+        brightness--;
+      }
+      break;
+  }
 
   uint8_t button = digitalRead(FLASH_BUTTON_PIN);
   if (button == LOW) {
     digitalWrite(INTERNAL_LED, LED_ON);
     delay(500);  // debounce / rate limit
+    state++;
+    if (state > SHUTDOWN) {
+      state = BOOT;
+    }
     digitalWrite(INTERNAL_LED, LED_OFF);
   }
 
