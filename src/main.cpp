@@ -1,8 +1,19 @@
+#include <ArduinoJson.h>
+#include <ConfigServer.h>
+#include <EEPROM.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
+#include <FS.h>
+#include <FastLED.h>
+#include <mini-wifi.h>
+
+#include "GeneratedConfig.h"
 #include "config.h"
 
+ESP8266WebServer server(80);
+Config cfg;
+
 #define FASTLED_ALLOW_INTERRUPTS 0
-#include <FastLED.h>
 #define LEDS_0_PIN 4
 #define LEDS_1_PIN 14
 #define LEDS_0_NUM 46
@@ -10,6 +21,8 @@
 #define MAX_BRIGHTNESS 128
 #define DIST 6
 #define OFFSET 5
+
+MiniWifi wifi(HOSTNAME, WIFI_SSID, WIFI_PASS);
 
 enum State { BOOT = 0, RUN_SLOW = 1, RUN_FAST = 2, RUN_FASTER = 3, SHUTDOWN = 4 };
 uint8_t state = BOOT;
@@ -32,17 +45,6 @@ unsigned long changeInterval = 250;
 #define INTERNAL_LED 2  // the tiny blue led on the esp8285
 #define LED_ON LOW
 #define LED_OFF HIGH
-
-#define FPM_SLEEP_MAX_TIME 0xFFFFFFF
-void wifiOff() {
-  // Serial.println("diconnecting client and wifi");
-  // client.disconnect();
-  wifi_station_disconnect();
-  wifi_set_opmode(NULL_MODE);
-  wifi_set_sleep_type(MODEM_SLEEP_T);
-  wifi_fpm_open();
-  wifi_fpm_do_sleep(FPM_SLEEP_MAX_TIME);
-}
 
 void setLedColorHSV(byte h, byte s, byte v) {
   // this is the algorithm to convert from RGB to HSV
@@ -90,12 +92,6 @@ void setLedColorHSV(byte h, byte s, byte v) {
   }
 }
 
-void setColor(CRGB leds[], uint8_t r, uint8_t g, uint8_t b, uint16_t len) {
-  for (int x = 0; x < len; x++) {
-    leds[x] = CRGB(r, g, b);
-  }
-}
-
 void setStrandColors(CRGB leds[], uint8_t bars[], uint16_t num, uint8_t r, uint8_t g, uint8_t b, boolean bar) {
   for (int x = 0; x < num; x++) {
     for (int i = 0; i < NUM_BARS; i++) {
@@ -125,7 +121,8 @@ void setStrand1(uint8_t r, uint8_t g, uint8_t b, boolean bar) {
 
 void setup() {
   Serial.begin(115200);
-  wifiOff();
+  EEPROM.begin(MAX_CONFIG_SIZE);
+  SPIFFS.begin();
 
   pinMode(INTERNAL_LED, OUTPUT);
   pinMode(FLASH_BUTTON_PIN, INPUT);
@@ -136,9 +133,57 @@ void setup() {
   LEDS.show();
 
   digitalWrite(INTERNAL_LED, LED_OFF);
+
+  // UI Button: Ladder Hue +
+  server.on("/api/ladder/hue/incr", HTTP_GET, [&]() {
+    for (uint8_t i = 0; i < NUM_BARS; i++) {
+      h[i] += 4;
+      h[i] = h[i] % 360;
+    }
+    lastChanged = 0;  // force refresh
+    server.send(200, "application/json", "{\"msg\":\"OK\"}");
+  });
+  // UI Button: Ladder Hue -
+  server.on("/api/ladder/hue/decr", HTTP_GET, [&]() {
+    for (uint8_t i = 0; i < NUM_BARS; i++) {
+      if (h[i] >= 4) {
+        h[i] -= 4;
+      } else {
+        h[i] = 360 + h[i] - 4;
+      }
+    }
+    lastChanged = 0;  // force refresh
+    server.send(200, "application/json", "{\"msg\":\"OK\"}");
+  });
+
+  wifi.setDebugStream(&Serial);  // optional
+  wifi.joinWifi();               // will connect to a wifi
+  // setup the config server
+  setupConfigServer(server, cfg, EEPROM);
+  server.begin();
 }
 
 void loop() {
+  static long lastCheck = 0;
+  wifi.checkWifi();
+  server.handleClient();
+
+  // Get the config object
+  if (millis() - lastCheck > 4000 && cfg.getConfigVersion(EEPROM) == cfg.getId()) {
+    lastCheck = millis();
+    uint32_t len = cfg.getConfigLength(EEPROM);
+    char buf[len + 1];
+    cfg.getConfigString(EEPROM, buf, len);
+    DynamicJsonDocument doc(MAX_CONFIG_SIZE);
+    deserializeJson(doc, buf);
+
+    // Read values via API
+    brightness = cfg.getSettingsBrightness(doc);
+
+  } else if (cfg.getConfigVersion(EEPROM) != cfg.getId()) {
+    Serial.println("NO CONFIG");
+  }
+
   switch (state) {
     case BOOT:
       if (brightness < MAX_BRIGHTNESS) {
@@ -186,7 +231,7 @@ void loop() {
 
     // I borked the last led
     leds1[45] = CRGB(0, 0, 0);
-    LEDS.setBrightness(brightness);
+    LEDS.setBrightness(brightness > MAX_BRIGHTNESS ? MAX_BRIGHTNESS : brightness);
     LEDS.show();
 
     lastChanged = millis();

@@ -1,0 +1,1 @@
+{"version":1,"title":"DNA Lamp","panels":[{"title":"Settings","entries":[{"label":"Brightness","help":"0-255","type":"I","value":127},{"label":"Ladder Hue +","help":"","type":"A","value":"/api/ladder/hue/incr"},{"label":"Ladder Hue -","help":"","type":"A","value":"/api/ladder/hue/decr"}]}]}

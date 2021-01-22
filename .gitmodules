@@ -1,0 +1,6 @@
+[submodule "lib/mini-wifi"]
+	path = lib/mini-wifi
+	url = https://github.com/pauls-3d-things/mini-wifi.git
+[submodule "lib/lib-espconfiggen-server"]
+	path = lib/lib-espconfiggen-server
+	url = https://github.com/pauls-3d-things/lib-espconfiggen-server.git
